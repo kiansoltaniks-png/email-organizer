@@ -2,7 +2,13 @@ const express = require('express');
 const Anthropic = require('@anthropic-ai/sdk');
 const router = express.Router();
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// Trim the key — Render dashboard values can have invisible trailing whitespace
+const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
+if (!apiKey) {
+  console.error('[ai] ANTHROPIC_API_KEY is not set — all AI routes will fail');
+}
+
+const anthropic = new Anthropic({ apiKey: apiKey || 'missing' });
 
 function requireAuth(req, res, next) {
   if (!req.session.tokens) {
@@ -11,7 +17,46 @@ function requireAuth(req, res, next) {
   next();
 }
 
-// Cached system prompt for categorization — saves tokens on repeated calls
+// Extract a readable error detail from Anthropic SDK errors
+function anthropicErrDetail(err) {
+  // SDK wraps API errors in err.error; network errors surface as err.message
+  return err.error?.error?.message   // Anthropic API error message
+    || err.error?.message
+    || err.message
+    || 'Unknown error';
+}
+
+function anthropicErrStatus(err) {
+  return err.status || err.error?.status || 500;
+}
+
+// ── GET /api/ai/health ────────────────────────────────────
+// Hit this in the browser after signing in to verify the API key works.
+router.get('/health', requireAuth, async (req, res) => {
+  if (!apiKey) {
+    return res.json({ ok: false, error: 'ANTHROPIC_API_KEY is not set on the server' });
+  }
+
+  try {
+    const msg = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 8,
+      messages: [{ role: 'user', content: 'Reply with: ok' }],
+    });
+    res.json({
+      ok: true,
+      response: msg.content[0]?.text,
+      keyPrefix: apiKey.slice(0, 16) + '…',
+    });
+  } catch (err) {
+    const status = anthropicErrStatus(err);
+    const detail = anthropicErrDetail(err);
+    console.error(`[ai/health] API check failed — HTTP ${status}: ${detail}`);
+    res.json({ ok: false, httpStatus: status, error: detail });
+  }
+});
+
+// ── POST /api/ai/categorize ───────────────────────────────
 const CATEGORIZE_SYSTEM = `You are an email categorization assistant. Analyze emails and assign each one exactly one category from this list:
 
 - urgent: Requires immediate action (deadlines, account alerts, emergencies, time-sensitive requests)
@@ -31,16 +76,15 @@ Rules:
 
 Format: [{"id":"<email_id>","category":"<category>","reason":"<one short phrase>"}]`;
 
-// POST /api/ai/categorize
 router.post('/categorize', requireAuth, async (req, res) => {
   const { emails, customCategories = [] } = req.body;
   if (!emails?.length) return res.json([]);
 
+  console.log(`[ai/categorize] Categorizing ${emails.length} emails`);
+
   try {
     const emailList = emails
-      .map(e =>
-        `ID: ${e.id}\nFrom: ${e.from}\nSubject: ${e.subject}\nSnippet: ${e.snippet}`
-      )
+      .map(e => `ID: ${e.id}\nFrom: ${e.from}\nSubject: ${e.subject}\nSnippet: ${e.snippet}`)
       .join('\n---\n');
 
     const customNote = customCategories.length
@@ -49,35 +93,63 @@ router.post('/categorize', requireAuth, async (req, res) => {
         `Use the custom category name exactly as written.`
       : '';
 
-    const message = await anthropic.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 4096,
-      system: [
-        {
-          type: 'text',
-          text: CATEGORIZE_SYSTEM,
-          cache_control: { type: 'ephemeral' },
-        },
-      ],
-      messages: [
-        {
-          role: 'user',
-          content: `Categorize these ${emails.length} emails:${customNote}\n\n${emailList}`,
-        },
-      ],
-    });
+    // Explicitly declare the prompt-caching beta so the header is always sent
+    const message = await anthropic.messages.create(
+      {
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 4096,
+        system: [
+          {
+            type: 'text',
+            text: CATEGORIZE_SYSTEM,
+            cache_control: { type: 'ephemeral' },
+          },
+        ],
+        messages: [
+          {
+            role: 'user',
+            content: `Categorize these ${emails.length} emails:${customNote}\n\n${emailList}`,
+          },
+        ],
+      },
+      {
+        headers: { 'anthropic-beta': 'prompt-caching-2024-07-31' },
+      }
+    );
 
     const raw = message.content[0].text.trim();
-    const json = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-    const categories = JSON.parse(json);
+    console.log(`[ai/categorize] Raw response (first 200 chars): ${raw.slice(0, 200)}`);
+
+    // Strip markdown fences if present
+    const jsonStr = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+
+    let categories;
+    try {
+      categories = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      console.error(`[ai/categorize] JSON parse failed: ${parseErr.message}`);
+      console.error(`[ai/categorize] Full raw response: ${raw}`);
+      return res.status(500).json({
+        error: 'AI returned malformed JSON',
+        detail: parseErr.message,
+        raw: raw.slice(0, 500),
+      });
+    }
+
+    console.log(`[ai/categorize] Done — categorized ${categories.length} emails`);
     res.json(categories);
+
   } catch (err) {
-    console.error('Categorization error:', err.message);
-    res.status(500).json({ error: 'Failed to categorize emails' });
+    const status = anthropicErrStatus(err);
+    const detail = anthropicErrDetail(err);
+    console.error(`[ai/categorize] Anthropic API error — HTTP ${status}: ${detail}`);
+    // Log the full error object for Render's log viewer
+    if (err.error) console.error('[ai/categorize] Full error body:', JSON.stringify(err.error, null, 2));
+    res.status(500).json({ error: 'Failed to categorize emails', detail, httpStatus: status });
   }
 });
 
-// POST /api/ai/draft-reply
+// ── POST /api/ai/draft-reply ──────────────────────────────
 router.post('/draft-reply', requireAuth, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email data required' });
@@ -115,18 +187,20 @@ Write only the reply body text. Do not include a subject line. Start directly wi
     console.log(`[ai/draft-reply] Done — ${draft.length} chars, stop_reason: ${message.stop_reason}`);
     res.json({ draft });
   } catch (err) {
-    const detail = err.message
-      || err.error?.message
-      || JSON.stringify(err.error || {});
-    console.error('[ai/draft-reply] Anthropic error:', detail);
-    res.status(500).json({ error: 'Failed to draft reply', detail });
+    const status = anthropicErrStatus(err);
+    const detail = anthropicErrDetail(err);
+    console.error(`[ai/draft-reply] Anthropic API error — HTTP ${status}: ${detail}`);
+    if (err.error) console.error('[ai/draft-reply] Full error body:', JSON.stringify(err.error, null, 2));
+    res.status(500).json({ error: 'Failed to draft reply', detail, httpStatus: status });
   }
 });
 
-// POST /api/ai/summarize — summarize a single email
+// ── POST /api/ai/summarize ────────────────────────────────
 router.post('/summarize', requireAuth, async (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'Email data required' });
+
+  console.log(`[ai/summarize] Summarizing: "${email.subject}"`);
 
   try {
     const message = await anthropic.messages.create({
@@ -146,8 +220,10 @@ Content: ${(email.body || email.snippet || '').slice(0, 2000)}`,
 
     res.json({ summary: message.content[0].text });
   } catch (err) {
-    console.error('Summarize error:', err.message);
-    res.status(500).json({ error: 'Failed to summarize email' });
+    const status = anthropicErrStatus(err);
+    const detail = anthropicErrDetail(err);
+    console.error(`[ai/summarize] Anthropic API error — HTTP ${status}: ${detail}`);
+    res.status(500).json({ error: 'Failed to summarize email', detail, httpStatus: status });
   }
 });
 

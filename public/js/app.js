@@ -266,14 +266,22 @@ async function categorizeEmails() {
       body: JSON.stringify({ emails: payload, customCategories: customNames }),
     });
 
-    if (!res.ok) return;
-    const cats = await res.json();
+    const data = await res.json();
+
+    if (!res.ok) {
+      const detail = data.detail || data.error || `HTTP ${res.status}`;
+      console.error('[app] Categorization failed:', res.status, detail);
+      setSidebarStatus(`AI categorization failed: ${detail}`);
+      return;
+    }
+
     state.categories = {};
-    for (const c of cats) {
+    for (const c of data) {
       state.categories[c.id] = { category: c.category, reason: c.reason };
     }
   } catch (err) {
-    console.error('Categorization failed:', err);
+    console.error('[app] Categorization network error:', err);
+    setSidebarStatus('AI categorization unavailable');
   }
 }
 

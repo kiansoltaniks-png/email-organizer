@@ -41,6 +41,16 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Validate required env vars at startup so problems are obvious in Render logs
+const REQUIRED_VARS = ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'ANTHROPIC_API_KEY', 'SESSION_SECRET'];
+const missingVars = REQUIRED_VARS.filter(k => !process.env[k]?.trim());
+if (missingVars.length) {
+  console.error(`[startup] MISSING env vars: ${missingVars.join(', ')} — some features will not work`);
+} else {
+  console.log('[startup] All required env vars present');
+  console.log(`[startup] ANTHROPIC_API_KEY prefix: ${process.env.ANTHROPIC_API_KEY.trim().slice(0, 16)}…`);
+}
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Email Organizer running — port ${PORT} — env: ${process.env.NODE_ENV || 'development'}`);

@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Environment — never commit secrets
+.env
+
+# Runtime logs
+server.log
+server.err
+
+# Custom category data (user-specific, ephemeral on Render free tier)
+data/*.json
+
+# OS
+.DS_Store
+Thumbs.db

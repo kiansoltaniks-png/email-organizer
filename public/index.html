@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Email Organizer</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+</head>
+<body class="login-page">
+  <div class="login-container">
+    <div class="login-card">
+      <div class="login-logo">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="12" fill="#4F46E5"/>
+          <path d="M8 16L24 28L40 16" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+          <rect x="8" y="14" width="32" height="22" rx="3" stroke="white" stroke-width="2.5" fill="none"/>
+        </svg>
+      </div>
+      <h1>Email Organizer</h1>
+      <p class="login-subtitle">AI-powered inbox organization, right in your browser.</p>
+
+      <div id="error-msg" class="error-banner" style="display:none"></div>
+
+      <a href="/auth/login" class="btn-google">
+        <svg width="20" height="20" viewBox="0 0 20 20">
+          <path d="M19.6 10.23c0-.68-.06-1.36-.18-2H10v3.79h5.4a4.6 4.6 0 01-2 3.02v2.5h3.24c1.9-1.75 3-4.33 3-7.31z" fill="#4285F4"/>
+          <path d="M10 20c2.7 0 4.97-.9 6.62-2.46l-3.24-2.5c-.9.6-2.04.96-3.38.96-2.6 0-4.8-1.76-5.59-4.12H1.07v2.58A10 10 0 0010 20z" fill="#34A853"/>
+          <path d="M4.41 11.88A6.02 6.02 0 014.1 10c0-.65.11-1.28.31-1.88V5.54H1.07A10 10 0 000 10c0 1.61.39 3.14 1.07 4.46l3.34-2.58z" fill="#FBBC05"/>
+          <path d="M10 3.96c1.47 0 2.79.5 3.83 1.5l2.86-2.86C14.96.9 12.69 0 10 0A10 10 0 001.07 5.54l3.34 2.58C5.2 5.72 7.4 3.96 10 3.96z" fill="#EA4335"/>
+        </svg>
+        Continue with Google
+      </a>
+
+      <div class="login-features">
+        <div class="feature">
+          <span class="feature-icon">🏷️</span>
+          <span>Auto-categorizes your emails</span>
+        </div>
+        <div class="feature">
+          <span class="feature-icon">✍️</span>
+          <span>AI-drafts replies instantly</span>
+        </div>
+        <div class="feature">
+          <span class="feature-icon">🔒</span>
+          <span>Read-only Gmail access</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get('error');
+    if (error) {
+      const msg = document.getElementById('error-msg');
+      msg.textContent = decodeURIComponent(error);
+      msg.style.display = 'block';
+    }
+  </script>
+</body>
+</html>

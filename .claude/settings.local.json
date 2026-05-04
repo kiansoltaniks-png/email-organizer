@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(claude-api)",
+      "Bash(npm install *)",
+      "Bash(node *)",
+      "PowerShell(Get-ChildItem -Recurse \"C:\\\\Users\\\\kians\\\\email-organizer\" | Where-Object { -not $_.PSIsContainer -and $_.FullName -notmatch 'node_modules' } | Select-Object -ExpandProperty FullName)",
+      "Bash(npm start *)",
+      "PowerShell(Get-NetTCPConnection *)",
+      "Bash(curl *)",
+      "PowerShell(Get-Process *)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git config *)",
+      "Bash(git push *)"
+    ]
+  }
+}

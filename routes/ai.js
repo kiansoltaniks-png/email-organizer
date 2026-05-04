@@ -105,26 +105,44 @@ router.post('/categorize', requireAuth, async (req, res) => {
       ],
     });
 
-    const raw = message.content[0].text.trim();
-    console.log(`[ai/categorize] Raw response (first 200 chars): ${raw.slice(0, 200)}`);
+    // Log the full Anthropic response metadata so Render logs show everything
+    console.log('[ai/categorize] Anthropic response:', JSON.stringify({
+      id:          message.id,
+      model:       message.model,
+      stop_reason: message.stop_reason,
+      usage:       message.usage,
+      content_len: message.content.length,
+      content_type: message.content[0]?.type,
+    }));
 
-    // Strip markdown fences if present
-    const jsonStr = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+    const raw = message.content[0]?.text ?? '';
+    console.log(`[ai/categorize] FULL raw response:\n${raw}`);
+
+    const jsonStr = raw.trim().replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+    console.log(`[ai/categorize] JSON string to parse:\n${jsonStr}`);
 
     let categories;
     try {
       categories = JSON.parse(jsonStr);
     } catch (parseErr) {
-      console.error(`[ai/categorize] JSON parse failed: ${parseErr.message}`);
-      console.error(`[ai/categorize] Full raw response: ${raw}`);
+      console.error(`[ai/categorize] JSON.parse failed: ${parseErr.message}`);
       return res.status(500).json({
         error: 'AI returned malformed JSON',
         detail: parseErr.message,
-        raw: raw.slice(0, 500),
+        raw: raw.slice(0, 1000),
       });
     }
 
-    console.log(`[ai/categorize] Done — categorized ${categories.length} emails`);
+    if (!Array.isArray(categories)) {
+      console.error(`[ai/categorize] Parsed value is not an array:`, typeof categories, JSON.stringify(categories).slice(0, 200));
+      return res.status(500).json({
+        error: 'AI response was not a JSON array',
+        detail: `Got type: ${typeof categories}`,
+        raw: raw.slice(0, 1000),
+      });
+    }
+
+    console.log(`[ai/categorize] Done — ${categories.length} categories returned`);
     res.json(categories);
 
   } catch (err) {

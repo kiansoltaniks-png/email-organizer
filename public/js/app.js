@@ -9,6 +9,7 @@ const state = {
   activeCategory: 'all',
   activeEmailId: null,
   emailCache: {},
+  catError: null,       // { status, detail, raw } on last categorization failure
 };
 
 // ── DOM refs ─────────────────────────────────────────────
@@ -52,6 +53,8 @@ const els = {
   addLabelForm:   $('add-label-form'),
   addLabelInput:  $('add-label-input'),
   btnLabelCancel: $('btn-label-cancel'),
+
+  catErrorBanner: $('cat-error-banner'),
 };
 
 // ── Built-in category metadata ────────────────────────────
@@ -240,13 +243,16 @@ async function loadEmails() {
     }
 
     renderEmailList();
+    hideCatErrorBanner();
     showLoading('Categorizing with AI…');
     const catOk = await categorizeEmails();
     renderEmailList();
     updateCounts();
     if (catOk) {
+      hideCatErrorBanner();
       setSidebarStatus(`${state.emails.length} emails loaded`);
     } else {
+      showCategorizationError(state.catError);
       setSidebarStatus(`${state.emails.length} emails loaded — categorization failed`, true);
     }
   } catch (err) {
@@ -275,15 +281,18 @@ async function categorizeEmails() {
 
     if (!res.ok) {
       const detail = data.detail || data.error || `HTTP ${res.status}`;
-      console.error('[app] Categorization failed:', res.status, detail);
+      console.error('[app] Categorization failed:', res.status, detail, data);
+      state.catError = { status: res.status, detail, raw: data.raw || '' };
       return false;
     }
 
     if (!Array.isArray(data) || data.length === 0) {
       console.error('[app] Categorization returned empty or non-array:', data);
+      state.catError = { status: 200, detail: 'API returned empty or non-array response', raw: JSON.stringify(data).slice(0, 500) };
       return false;
     }
 
+    state.catError = null;
     state.categories = {};
     for (const c of data) {
       state.categories[c.id] = { category: c.category, reason: c.reason };
@@ -292,6 +301,7 @@ async function categorizeEmails() {
     return true;
   } catch (err) {
     console.error('[app] Categorization network error:', err);
+    state.catError = { status: 0, detail: `Network error: ${err.message}`, raw: '' };
     return false;
   }
 }
@@ -658,6 +668,30 @@ document.querySelectorAll('.ai-close').forEach(btn => {
 });
 
 // ── Helpers ───────────────────────────────────────────────
+function showCategorizationError(err) {
+  if (!err) return;
+  const { status, detail, raw } = err;
+  const statusLabel = status ? `HTTP ${status}` : 'Network error';
+  const rawBlock = raw
+    ? `<div class="cat-err-raw">${escHtml(raw.slice(0, 800))}</div>`
+    : '';
+  els.catErrorBanner.innerHTML = `
+    <strong>AI categorization failed (${escHtml(statusLabel)})</strong>
+    <div class="cat-err-detail">${escHtml(detail)}</div>
+    ${rawBlock}
+    <div class="cat-err-links">
+      <a href="/api/ai/health" target="_blank">Check AI health</a>
+      <button class="cat-err-dismiss" id="cat-err-dismiss" title="Dismiss">✕</button>
+    </div>`;
+  els.catErrorBanner.style.display = 'block';
+  document.getElementById('cat-err-dismiss')?.addEventListener('click', hideCatErrorBanner);
+}
+
+function hideCatErrorBanner() {
+  els.catErrorBanner.style.display = 'none';
+  els.catErrorBanner.innerHTML = '';
+}
+
 function showLoading(text) {
   els.loadingState.style.display = 'flex';
   els.loadingText.textContent = text;
@@ -700,11 +734,13 @@ function setSidebarStatus(text, showRetry = false) {
       const ok = await categorizeEmails();
       renderEmailList();
       updateCounts();
-      setSidebarStatus(
-        ok ? `${state.emails.length} emails loaded`
-           : `${state.emails.length} emails loaded — categorization failed`,
-        !ok
-      );
+      if (ok) {
+        hideCatErrorBanner();
+        setSidebarStatus(`${state.emails.length} emails loaded`);
+      } else {
+        showCategorizationError(state.catError);
+        setSidebarStatus(`${state.emails.length} emails loaded — categorization failed`, true);
+      }
     });
   } else {
     els.sidebarStatus.textContent = text;

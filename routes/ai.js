@@ -93,29 +93,17 @@ router.post('/categorize', requireAuth, async (req, res) => {
         `Use the custom category name exactly as written.`
       : '';
 
-    // Explicitly declare the prompt-caching beta so the header is always sent
-    const message = await anthropic.messages.create(
-      {
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 4096,
-        system: [
-          {
-            type: 'text',
-            text: CATEGORIZE_SYSTEM,
-            cache_control: { type: 'ephemeral' },
-          },
-        ],
-        messages: [
-          {
-            role: 'user',
-            content: `Categorize these ${emails.length} emails:${customNote}\n\n${emailList}`,
-          },
-        ],
-      },
-      {
-        headers: { 'anthropic-beta': 'prompt-caching-2024-07-31' },
-      }
-    );
+    const message = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 4096,
+      system: CATEGORIZE_SYSTEM,
+      messages: [
+        {
+          role: 'user',
+          content: `Categorize these ${emails.length} emails:${customNote}\n\n${emailList}`,
+        },
+      ],
+    });
 
     const raw = message.content[0].text.trim();
     console.log(`[ai/categorize] Raw response (first 200 chars): ${raw.slice(0, 200)}`);

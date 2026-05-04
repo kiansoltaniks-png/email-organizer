@@ -241,10 +241,14 @@ async function loadEmails() {
 
     renderEmailList();
     showLoading('Categorizing with AI…');
-    await categorizeEmails();
+    const catOk = await categorizeEmails();
     renderEmailList();
     updateCounts();
-    setSidebarStatus(`${state.emails.length} emails loaded`);
+    if (catOk) {
+      setSidebarStatus(`${state.emails.length} emails loaded`);
+    } else {
+      setSidebarStatus(`${state.emails.length} emails loaded — categorization failed`, true);
+    }
   } catch (err) {
     console.error('[app] loadEmails error:', err);
     showErrorState(`Network error: ${err.message}`);
@@ -252,6 +256,7 @@ async function loadEmails() {
   }
 }
 
+// Returns true on success, false on any failure
 async function categorizeEmails() {
   try {
     const payload = state.emails.map(e => ({
@@ -271,17 +276,23 @@ async function categorizeEmails() {
     if (!res.ok) {
       const detail = data.detail || data.error || `HTTP ${res.status}`;
       console.error('[app] Categorization failed:', res.status, detail);
-      setSidebarStatus(`AI categorization failed: ${detail}`);
-      return;
+      return false;
+    }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      console.error('[app] Categorization returned empty or non-array:', data);
+      return false;
     }
 
     state.categories = {};
     for (const c of data) {
       state.categories[c.id] = { category: c.category, reason: c.reason };
     }
+    console.log(`[app] Categorized ${data.length} emails`);
+    return true;
   } catch (err) {
     console.error('[app] Categorization network error:', err);
-    setSidebarStatus('AI categorization unavailable');
+    return false;
   }
 }
 
@@ -679,8 +690,25 @@ function showErrorState(message, showSignIn = false) {
   els.emailList.style.display = 'none';
 }
 
-function setSidebarStatus(text) {
-  els.sidebarStatus.textContent = text;
+function setSidebarStatus(text, showRetry = false) {
+  if (showRetry) {
+    els.sidebarStatus.innerHTML =
+      `${escHtml(text)} <a href="#" id="retry-categorize" style="color:var(--accent)">Retry</a>`;
+    document.getElementById('retry-categorize')?.addEventListener('click', async e => {
+      e.preventDefault();
+      setSidebarStatus('Re-categorizing…');
+      const ok = await categorizeEmails();
+      renderEmailList();
+      updateCounts();
+      setSidebarStatus(
+        ok ? `${state.emails.length} emails loaded`
+           : `${state.emails.length} emails loaded — categorization failed`,
+        !ok
+      );
+    });
+  } else {
+    els.sidebarStatus.textContent = text;
+  }
 }
 
 function loadingDotsHTML(label) {

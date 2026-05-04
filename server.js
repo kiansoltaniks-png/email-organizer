@@ -16,7 +16,7 @@ const app = express();
 // internally — trust proxy so Express sees the correct protocol for secure cookies
 if (isProd) app.set('trust proxy', 1);
 
-app.use(express.json());
+app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use(session({
